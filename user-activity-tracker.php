@@ -3,7 +3,7 @@
 Plugin Name: User Activity Tracker
 Description: Tracks real-time user activity and page visits with enhanced security
 Version: 1.1
-Author: Your Name
+Author: Jericho Murito
 */
 
 if (!defined('ABSPATH')) exit;

@@ -20,59 +20,35 @@ function uat_admin_page() {
     global $wpdb;
     $table = $wpdb->prefix . 'user_activity_visits';
     
-    // Handle CSV export
-    if (isset($_POST['export_csv']) && check_admin_referer('uat_export_nonce')) {
-        $start_date = sanitize_text_field($_POST['start_date']);
-        $end_date = sanitize_text_field($_POST['end_date']);
-        
-        uat_export_csv($start_date, $end_date);
-    }
-    
-    $visits = $wpdb->get_results($wpdb->prepare("
-        SELECT * FROM %i 
-        WHERE timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)
-        ORDER BY timestamp DESC 
-        LIMIT %d
-    ", $table, 50));
-    
+    // Updated query to count both logged-in users and guests within the last 15 minutes
     $active_users = $wpdb->get_var($wpdb->prepare("
-        SELECT COUNT(DISTINCT user_id) 
+        SELECT COUNT(DISTINCT CASE 
+            WHEN user_id > 0 THEN user_id 
+            ELSE CONCAT('guest_', ip_address) 
+        END)
         FROM %i 
         WHERE timestamp > DATE_SUB(NOW(), INTERVAL 15 MINUTE)
     ", $table));
+    
+    // Get recent visits with proper user information
+    $visits = $wpdb->get_results($wpdb->prepare("
+        SELECT v.*, u.user_login, u.display_name 
+        FROM %i v
+        LEFT JOIN {$wpdb->users} u ON v.user_id = u.ID
+        WHERE v.timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        ORDER BY v.timestamp DESC 
+        LIMIT %d
+    ", $table, 50));
     
     ?>
     <div class="wrap">
         <h1><?php echo esc_html__('User Activity Tracker'); ?></h1>
         
-        <!-- Export Form -->
-        <div class="card">
-            <h2><?php echo esc_html__('Export Data'); ?></h2>
-            <form method="post" action="">
-                <?php wp_nonce_field('uat_export_nonce'); ?>
-                <table class="form-table">
-                    <tr>
-                        <th scope="row"><label for="start_date"><?php echo esc_html__('Start Date'); ?></label></th>
-                        <td><input type="date" id="start_date" name="start_date" required></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="end_date"><?php echo esc_html__('End Date'); ?></label></th>
-                        <td><input type="date" id="end_date" name="end_date" required></td>
-                    </tr>
-                </table>
-                <p class="submit">
-                    <input type="submit" name="export_csv" class="button button-primary" value="<?php echo esc_attr__('Export to CSV'); ?>">
-                </p>
-            </form>
-        </div>
-        
-        <!-- Active Users Card -->
         <div class="card">
             <h2><?php echo esc_html__('Active Users'); ?></h2>
             <p class="active-users"><?php echo intval($active_users); ?> <?php echo esc_html__('users online now'); ?></p>
         </div>
         
-        <!-- Recent Visits Table -->
         <div class="card">
             <h2><?php echo esc_html__('Recent Page Visits'); ?></h2>
             <?php wp_nonce_field('uat_admin_nonce', 'uat_nonce'); ?>
@@ -88,7 +64,15 @@ function uat_admin_page() {
                 <tbody>
                     <?php foreach ($visits as $visit): ?>
                         <tr>
-                            <td><?php echo $visit->user_id ? esc_html(get_userdata($visit->user_id)->user_login) : esc_html__('Guest'); ?></td>
+                            <td>
+                                <?php 
+                                if ($visit->user_id) {
+                                    echo esc_html($visit->display_name ?: $visit->user_login);
+                                } else {
+                                    echo esc_html__('Guest');
+                                }
+                                ?>
+                            </td>
                             <td><?php echo esc_html($visit->page_url); ?></td>
                             <td><?php echo esc_html($visit->timestamp); ?></td>
                             <td><?php echo $visit->duration ? esc_html($visit->duration . ' ' . __('seconds')) : '-'; ?></td>
